@@ -15,12 +15,7 @@
  */
 package com.example.android.asynctaskloader;
 
-import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Bundle;
-import android.support.v4.app.LoaderManager;
-import android.support.v4.content.AsyncTaskLoader;
-import android.support.v4.content.Loader;
 import android.support.v7.app.AppCompatActivity;
 import android.text.TextUtils;
 import android.util.Log;
@@ -30,15 +25,31 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import com.example.android.asynctaskloader.retrofit.GitHubClient;
+import com.example.android.asynctaskloader.retrofit.GitHubRepo;
 import com.example.android.asynctaskloader.utilities.NetworkUtils;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.URL;
+import java.util.List;
+
+import okhttp3.OkHttpClient;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
+import retrofit2.Retrofit;
+import retrofit2.converter.gson.GsonConverterFactory;
 
 // TODO (1) implement LoaderManager.LoaderCallbacks<String> on MainActivity
-public class MainActivity extends AppCompatActivity implements LoaderManager.LoaderCallbacks<String>{
+public class MainActivity extends AppCompatActivity {
+
+    private static final String LOG_TAG = MainActivity.class.getSimpleName();
+
+    String API_BASE_URL = "https://api.github.com";
+
+    final static String sortBy = "stars";
 
     /* A constant to save and restore the URL that is being displayed */
     private static final String SEARCH_QUERY_URL_EXTRA = "query";
@@ -59,6 +70,10 @@ public class MainActivity extends AppCompatActivity implements LoaderManager.Loa
 
     private ProgressBar mLoadingIndicator;
 
+    private GitHubClient gitHubClient;
+
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -67,6 +82,7 @@ public class MainActivity extends AppCompatActivity implements LoaderManager.Loa
         mSearchBoxEditText = (EditText) findViewById(R.id.et_search_box);
 
         mUrlDisplayTextView = (TextView) findViewById(R.id.tv_url_display);
+
         mSearchResultsTextView = (TextView) findViewById(R.id.tv_github_search_results_json);
 
         mErrorMessageDisplay = (TextView) findViewById(R.id.tv_error_message_display);
@@ -77,18 +93,12 @@ public class MainActivity extends AppCompatActivity implements LoaderManager.Loa
             String queryUrl = savedInstanceState.getString(SEARCH_QUERY_URL_EXTRA);
 
             // TODO (26) Remove the code that retrieves the JSON
-            //String rawJsonSearchResults = savedInstanceState.getString(SEARCH_RESULTS_RAW_JSON);
+            String rawJsonSearchResults = savedInstanceState.getString(SEARCH_RESULTS_RAW_JSON);
 
             mUrlDisplayTextView.setText(queryUrl);
             // TODO (25) Remove the code that displays the JSON
-            //mSearchResultsTextView.setText(rawJsonSearchResults);
+            mSearchResultsTextView.setText(rawJsonSearchResults);
         }
-        // TODO (24) Initialize the loader with GITHUB_SEARCH_LOADER as the ID, null for the bundle, and this for the context
-
-
-        LoaderManager loaderManager = getSupportLoaderManager();
-        loaderManager.initLoader(GITHUB_SEARCH_LOADER, null, this);
-
 
     }
 
@@ -99,7 +109,10 @@ public class MainActivity extends AppCompatActivity implements LoaderManager.Loa
      */
     private void makeGithubSearchQuery() {
 
-        String githubQuery = mSearchBoxEditText.getText().toString();
+        final String githubQuery = mSearchBoxEditText.getText().toString();
+
+        Log.d(LOG_TAG, "GitHub Query is : " + githubQuery);
+
 
         // TODO (17) If no search was entered, indicate that there isn't anything to search for and return
         if (TextUtils.isEmpty(githubQuery)) {
@@ -108,22 +121,71 @@ public class MainActivity extends AppCompatActivity implements LoaderManager.Loa
 
         } else {
 
+            OkHttpClient.Builder httpClient = new OkHttpClient.Builder();
 
-            URL githubSearchUrl = NetworkUtils.buildUrl(githubQuery);
-            mUrlDisplayTextView.setText(githubSearchUrl.toString());
+            Gson gson = new GsonBuilder()
+                    .setDateFormat("yyyy-MM-dd'T'HH:mm:ssZ")
+                    .create();
 
-            Bundle queryBundle = new Bundle();
-            queryBundle.putString(SEARCH_QUERY_URL_EXTRA, githubQuery);
+            Retrofit.Builder builder = new Retrofit.Builder()
+                    .baseUrl(API_BASE_URL)
+                    .addConverterFactory(GsonConverterFactory.create(gson));
 
-            LoaderManager loaderManager = getSupportLoaderManager();
+            Retrofit retrofit = builder.client(httpClient.build()).build();
 
-            Loader<String> loader = loaderManager.getLoader(GITHUB_SEARCH_LOADER);
+            // Create a very simple REST adapter which points the GitHub API endpoint.
+            gitHubClient = retrofit.create(GitHubClient.class);
 
-            if (loader == null){
-                loaderManager.initLoader(GITHUB_SEARCH_LOADER, queryBundle, this);
-            } else {
-                loaderManager.restartLoader(GITHUB_SEARCH_LOADER, queryBundle, this);
-            }
+            // Fetch a list of the Github repositories.
+           // Call<List<GitHubRepo>> call = gitHubClient.reposForUser(githubQuery);
+
+            Call<List<GitHubRepo>> call = gitHubClient.reposFromName(githubQuery, sortBy);
+
+            // Execute the call asynchronously. Get a positive or negative callback.
+            call.enqueue(new Callback<List<GitHubRepo>>() {
+                @Override
+                public void onResponse(Call<List<GitHubRepo>> call, Response<List<GitHubRepo>> response) {
+
+                    Log.d(MainActivity.class.getSimpleName(), "Retrofit Response: " + response.code());
+
+                    if (response.isSuccessful()) {
+
+                        showJsonDataView();
+
+                        List<GitHubRepo> repos = response.body();
+
+                        for (GitHubRepo gitHubRepo : repos) {
+
+                            Log.d(MainActivity.class.getSimpleName(), gitHubRepo.getName());
+                            Log.d(MainActivity.class.getSimpleName(), String.valueOf(gitHubRepo.getId()));
+
+                            String id = String.valueOf(gitHubRepo.getId());
+                            String name = gitHubRepo.getName();
+                            String url = gitHubRepo.getUrl();
+
+                            mUrlDisplayTextView.setText(response.toString());
+
+                            mSearchResultsTextView.append("\n" + id + "\n" + name + "\n" + url);
+                            //Toast.makeText(MainActivity.this, id + name, Toast.LENGTH_LONG).show();
+                        }
+
+                    } else {
+                        Toast.makeText(MainActivity.this, "Retrofit response is null", Toast.LENGTH_LONG).show();
+                    }
+
+                }
+
+                @Override
+                public void onFailure(Call<List<GitHubRepo>> call, Throwable t) {
+
+                    // the network call was a failure
+                    // TODO: handle error
+                    showErrorMessage();
+                    t.getStackTrace();
+                    Toast.makeText(MainActivity.this, "Error Connecting", Toast.LENGTH_LONG).show();
+                }
+
+            });
         }
     }
 
@@ -153,79 +215,6 @@ public class MainActivity extends AppCompatActivity implements LoaderManager.Loa
         mSearchResultsTextView.setVisibility(View.INVISIBLE);
         /* Then, show the error */
         mErrorMessageDisplay.setVisibility(View.VISIBLE);
-    }
-
-    // TODO (3) Override onCreateLoader
-    // Within onCreateLoader
-    // TODO (4) Return a new AsyncTaskLoader<String> as an anonymous inner class with this as the constructor's parameter
-    // TODO (5) Override onStartLoading
-    // Within onStartLoading
-
-    // TODO (6) If args is null, return.
-
-    // TODO (7) Show the loading indicator
-
-    // TODO (8) Force a load
-    // END - onStartLoading
-
-    @Override
-    public Loader<String> onCreateLoader(int id, final Bundle args) {
-        return new AsyncTaskLoader<String>(this) {
-
-            @Override
-            protected void onStartLoading() {
-                super.onStartLoading();
-                if (args == null){
-                    return;
-                } else {
-                    mLoadingIndicator.setVisibility(View.VISIBLE);
-                    forceLoad();
-                }
-            }
-
-
-            @Override
-            public String loadInBackground() {
-
-                String url = args.getString(SEARCH_QUERY_URL_EXTRA);
-                Log.d(MainActivity.class.getSimpleName(), "Query Url is: " + url);
-                if (url == null || TextUtils.isEmpty(url)){
-                    return null;
-                } else {
-                    try {
-                        URL builtUrl = NetworkUtils.buildUrl(url);
-                        String githubSearchResults = NetworkUtils.getResponseFromHttpUrl(builtUrl);
-                        return githubSearchResults;
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                        return null;
-                    }
-                }
-            }
-        };
-    }
-
-
-    @Override
-    public void onLoadFinished(Loader<String> loader, String data) {
-
-        mLoadingIndicator.setVisibility(View.INVISIBLE);
-
-        if (data != null && !data.equals("")) {
-            showJsonDataView();
-            mSearchResultsTextView.setVisibility(View.VISIBLE);
-            mSearchResultsTextView.setText(data);
-        } else {
-            showErrorMessage();
-        }
-
-    }
-
-    // TODO (16) Override onLoaderReset as it is part of the interface we implement, but don't do anything in this method
-
-    @Override
-    public void onLoaderReset(Loader<String> loader) {
-
     }
 
 

@@ -90,8 +90,8 @@ public class MainActivity extends AppCompatActivity {
         mLoadingIndicator = (ProgressBar) findViewById(R.id.pb_loading_indicator);
 
         if (savedInstanceState != null) {
-            String queryUrl = savedInstanceState.getString(SEARCH_QUERY_URL_EXTRA);
 
+            String queryUrl = savedInstanceState.getString(SEARCH_QUERY_URL_EXTRA);
             // TODO (26) Remove the code that retrieves the JSON
             String rawJsonSearchResults = savedInstanceState.getString(SEARCH_RESULTS_RAW_JSON);
 
@@ -240,6 +240,9 @@ public class MainActivity extends AppCompatActivity {
 
         String queryUrl = mUrlDisplayTextView.getText().toString();
         outState.putString(SEARCH_QUERY_URL_EXTRA, queryUrl);
+
+        String JsonResult = mSearchResultsTextView.getText().toString();
+        outState.putString(SEARCH_RESULTS_RAW_JSON, JsonResult);
 
     }
 }
